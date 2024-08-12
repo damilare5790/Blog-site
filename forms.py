@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField, PasswordField
-from wtforms.validators import DataRequired, URL, Length
+from wtforms.validators import DataRequired, URL, Length, Email, ValidationError
 from flask_ckeditor import CKEditorField
 
 
@@ -19,7 +19,7 @@ class RegisterForm(FlaskForm):
                                                                                  "5 character ")])
     email = StringField('Email', validators=[DataRequired()])
     password = PasswordField('Password',
-                             validators=[DataRequired(), Length(8, message="Your Username should be a min of "
+                             validators=[DataRequired(), Length(8, message="Your Password should be a min of "
                                                                            "5 character ")])
     submit = SubmitField("Submit")
 
@@ -28,7 +28,7 @@ class RegisterForm(FlaskForm):
 class LoginForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired()])
     password = PasswordField('Password',
-                             validators=[DataRequired(), Length(8, message="Your Username should be a min of "
+                             validators=[DataRequired(), Length(8, message="Your Password should be a min of "
                                                                            "5 character ")])
     submit = SubmitField("Login")
 
@@ -37,3 +37,28 @@ class LoginForm(FlaskForm):
 class CommentForm(FlaskForm):
     comment = CKEditorField("Comment Below", validators=[DataRequired()])
     submit = SubmitField("Submit Comment")
+
+
+# Forget Password Form
+class ResetPasswordRequestForm(FlaskForm):
+    email = StringField("Email", validators=[DataRequired(), Email()])
+    submit = SubmitField("Request Password Reset")
+
+
+class EnterOTP(FlaskForm):
+    OTP = StringField("Enter OTP", validators=[DataRequired()])
+    submit = SubmitField("Confirm OTP")
+
+
+class NewPasswordCheck(FlaskForm):
+    password1 = PasswordField("Enter Password",
+                              validators=[DataRequired(), Length(8, message="Your Password should be a min of "
+                                                                            "5 character ")])
+    password2 = PasswordField("Confirm Password",
+                              validators=[DataRequired(), Length(8, message="Your Password should be a min of "
+                                                                            "5 character ")])
+    submit = SubmitField()
+
+    def validate_password2(self, field):
+        if self.password1.data != field.data:
+            raise ValidationError("Passwords must match.")

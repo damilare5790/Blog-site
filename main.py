@@ -1,5 +1,5 @@
-from datetime import date
-from flask import Flask, abort, render_template, redirect, url_for, flash, request
+from datetime import date, datetime, timedelta
+from flask import Flask, abort, render_template, redirect, url_for, flash, request, session
 from flask_bootstrap import Bootstrap5
 from flask_ckeditor import CKEditor
 from flask_gravatar import Gravatar
@@ -10,10 +10,12 @@ from sqlalchemy import Integer, String, Text
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 # Import your forms from the forms.py
-from forms import CreatePostForm, CommentForm, LoginForm, RegisterForm
+from forms import CreatePostForm, CommentForm, LoginForm, RegisterForm, ResetPasswordRequestForm, EnterOTP, \
+    NewPasswordCheck
 import os
 import yagmail
 from urllib.parse import urlparse, urljoin
+import random
 
 '''
 Make sure the required packages are installed: 
@@ -51,6 +53,17 @@ def only_commenter(function):
         return function(*args, **kwargs)
 
     return check
+
+
+def otp_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('otp_validated'):
+            flash("You must validate the OTP before changing the password.")
+            return redirect(url_for('reset'))
+        return f(*args, **kwargs)
+
+    return decorated_function
 
 
 app = Flask(__name__)
@@ -186,6 +199,71 @@ def url_check(target):
     host = urlparse(request.host_url)
     test = urlparse(urljoin(request.host_url, target))
     return test.scheme in ("http", "https") and host.netloc == test.netloc
+
+
+# generating new otp and returning the future expiration time as a list
+def generate_otp():
+    otp = random.randint(100000, 999999)
+    expire_time = datetime.now() + timedelta(minutes=3)
+    return otp, expire_time
+
+
+def send_otp_mail(one_tp, email):
+    email_message = (f"Dear User, this mail was sent to you because you requested for a Password reset\n"
+                     f"OTP: {one_tp}\n Please enter the code to Continue your password  reset. It Expires in 3 Minutes ")
+    yag = yagmail.SMTP(user=MAIL_ADDRESS, password=MAIL_PASSWORD)
+    yag.send(to=email, subject="Password Reset from BLOG-POST ", contents=email_message)
+
+
+@app.route("/enter_otp", methods=["GET", "POST"])
+def enter_otp():
+    form = EnterOTP()
+    email = request.args.get('email')
+    otp = request.args.get('otp')
+    expiry = datetime.fromisoformat(request.args.get('expiry'))
+    if form.validate_on_submit():
+        if datetime.now() > expiry:
+            flash("This OTP has expired, please try again.")
+            return redirect(url_for("reset"))
+        elif form.OTP.data != otp:
+            flash("Incorrect OTP. Please try again.")
+            return redirect(url_for("enter_otp", email=email, otp=otp, expiry=expiry))
+        else:
+            session['otp_validated'] = True
+            flash("OTP verified. Please set your new password.")
+            return redirect(url_for("new_password", email=email))
+    return render_template("password_reset.html", form=form, email=form.OTP.data)
+
+
+@app.route("/new_password", methods=["GET", "POST"])
+@otp_required
+def new_password():
+    form = NewPasswordCheck()
+    email = request.args.get('email')
+
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=email).first_or_404()
+        user.password = generate_password_hash(form.password1.data, method="pbkdf2:sha256", salt_length=24)
+        db.session.commit()
+        flash("Password successfully changed. Please log in.")
+        return redirect(url_for("login"))
+
+    return render_template("password_reset.html", email=form.password1.data, form=form)
+
+
+@app.route("/reset", methods=["GET", "POST"])
+def reset():
+    form = ResetPasswordRequestForm()
+    email = form.email.data
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=email).first()
+        if user:
+            otp, expire_time = generate_otp()
+            send_otp_mail(otp, email)
+            return redirect(url_for("enter_otp", email=user.email, otp=otp, expiry=expire_time))
+        else:
+            flash("This email does not exist, Please register or try again")
+    return render_template("password_reset.html", email=email, form=form)
 
 
 @app.route('/logout')
